@@ -1,0 +1,67 @@
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+
+# Parameters
+nc: 1 # number of classes
+scales: # model compound scaling constants, i.e. 'model=yolov8n.yaml' will call yolov8.yaml with scale 'n'
+  # [depth, width, max_channels]
+  m: [0.67, 0.75, 768] # YOLOv8m summary: 295 layers, 25902640 parameters, 25902624 gradients,  79.3 GFLOPs
+
+# YOLOv8.0n backbone
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [64, 3, 2]]         # 0 - P1/2 (first downsample)
+  - [-1, 1, SPDConv, [128, 2]]        # 1 - P2/4 (second downsample)
+  - [-1, 3, C2f, [128, True]]         # 2 - feature aggregation 1
+  - [-1, 1, SPDConv, [256, 2]]        # 3 - downsample to 1/8
+  - [-1, 6, C2f, [256, True]]         # 4 - **P3/8** (feature map at 1/8, dopo fusione)
+  - [-1, 1, SPDConv, [512, 2]]        # 5 - downsample to 1/16
+  - [-1, 6, C2f, [512, True]]         # 6 - **P4/16** (feature map at 1/16, dopo fusione)
+  - [-1, 1, SPDConv, [1024, 2]]       # 7 - downsample to 1/32
+  - [-1, 3, C2fCIB, [1024, True]]     # 8 - feature aggregation 2
+  - [-1, 1, SPPF, [1024, 5]]          # 9 - neck bottleneck (SPPF)
+  - [-1, 1, PSA, [1024]]              # 10 - attention
+
+# YOLOv8.0n head
+head:
+  # --------- TOP-DOWN ---------
+  # Upsample P5 to P4 size, concat with P4, fuse -> P4'
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]     # 11: upsample P5 (9) to P4 size
+  - [[6, -1], 1, Concat, [1]]                      # 12: concat P4 (6) + up(P5)
+  - [-1, 1, C2f, [512]]                            # 13: P4'
+
+  # Upsample P4' to P3 size, concat with P3, fuse -> P3'
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]     # 14: upsample P4' to P3 size
+  - [[4, -1], 1, Concat, [1]]                      # 15: concat P3 (4) + up(P4')
+  - [-1, 1, C2f, [256]]                            # 16: P3'
+
+  # Upsample P3' to P2 size, concat with P2, fuse -> P2'
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]     # 17: upsample P3' to P2 size
+  - [[2, -1], 1, Concat, [1]]                      # 18: concat P2 (2) + up(P3')
+  - [-1, 1, C2f, [128]]                            # 19: P2'
+
+  # --------- BOTTOM-UP (PANet) ---------
+  - [-1, 1, SPDConv, [256, 2]]                     # 20: downsample P2' (19) to P3' size
+  - [[4, 16, -1], 1, Concat, [1]]                  # 21: concat P3, P3', P2' (downsampled)
+  - [-1, 1, C2f, [256]]                            # 22: fusione finale
+
+  # --------- DETECTION ---------
+  - [[22], 1, v10Detect, [nc]]
+
+training:
+  task: detect
+  epochs: 100
+  batch: 64
+  optimizer: SGD
+  lr0: 0.01
+  lrf: 0.0001
+  momentum: 0.9
+  weight_decay: 0.0005
+  warmup_epochs: 3
+  pretrained: False
+  save_period: 10
+  cache: False
+  save: True
+  verbose: True
+  save_dir: "/app/results"
+  device: 0
+  project: "/app/results"
